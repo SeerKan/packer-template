@@ -1,0 +1,100 @@
+{
+"variables": {
+"version": "1",
+#configure aws vpc/subnet/sg in the lower end
+# add your variables/tags here
+"Tag1": "docker",
+"Tag2": "base",
+"Tag3": "stage",
+"aws_access_key": "asfasfasgdsgdsgsddemo,
+"aws_secret_key": "fh47e4g6fgue46demo",
+"aws_region": "eu-west-1",
+# a good way to handle secrets without commiting them ( you will need to export STAGE_VAULT_PASS=your-secret )
+"pass": "{{env `STAGE_VAULT_PASS`}}"
+},
+"builders": [
+{
+"name": "{{ user `Tag3`}}-{{ user `Tag1`}}-{{ user `Tag2`}}-{{user `version`}}",
+# attach custom size ebs
+"type": "amazon-ebs",
+"ami_block_device_mappings": [ {
+    "device_name": "/dev/sda1",
+    "volume_size": 200, # size in GB
+    "delete_on_termination": true
+        } ],
+"launch_block_device_mappings": [ {
+    "device_name": "/dev/sda1",
+    "volume_size": 200, # size in GB
+    "delete_on_termination": true
+        } ],
+"access_key": "{{ user `aws_access_key`}}",
+"secret_key": "{{ user `aws_secret_key`}}",
+
+"tags": {
+"Project": "{{ user `Tag1`}}",
+"Type": "{{ user `Tag2`}}",
+"Environment": "{{user `Tag3`}}",
+"Name": "{{ user `Tag3`}}_{{ user `Tag1`}}"
+},
+
+"region": "{{ user `aws_region`}}",
+#automatically search for the lastest AMI mathing the name
+"source_ami_filter": {
+  "filters": {
+    "virtualization-type": "hvm",
+    "name": "*ubuntu-xenial-16.04-amd64-server-*",
+    "root-device-type": "ebs"
+  },
+  "owners": ["099720109477"],
+  "most_recent": true
+},
+########### These need to be configured based on your needs and env
+"instance_type": "c4.large",
+"spot_price": "0.1", # use spot instances, much cheaper
+"vpc_id": "vpc-1234",
+"subnet_id": "subnet-1234",
+"ssh_username": "ubuntu",
+"ssh_port":"22",
+"security_group_id": "sg-1234",
+"associate_public_ip_address": true,
+"ssh_keypair_name": "packer",
+"ssh_private_key_file": ".ssh/packer.pem",
+"force_deregister": true,
+"ami_name": "packer-{{user `Tag3`}}-{{user `Tag1`}}-{{timestamp}}"
+}
+],
+"provisioners": [
+# example on how to copy a file
+    {
+      "type": "file",
+      "source": "files/bootstrap_docker_ce.sh",
+      "destination": "/tmp/bootstrap_docker_ce.sh"
+    },
+# example on how to run one or more bash commands
+    {
+      "type": "shell",
+      "execute_command": "echo 'packer' | sudo -S sh -c '{{ .Vars }} {{ .Path }}'",
+      "inline": [
+        "whoami",
+        "cd /tmp",
+        "chmod +x bootstrap_docker_ce.sh",
+        "chmod +x ansible.sh",
+        "chmod +x cleanup.sh",
+        "ls -alh /tmp",
+        "./bootstrap_docker_ce.sh",
+        "sleep 5",
+        "./ansible.sh",
+        "sleep 5",
+        "./cleanup.sh"
+      ]
+    },
+# example on how to execute an ansible playbook on target with a vault password
+    {
+      "type": "ansible-local",
+      "playbook_file": "../bastion/configure.bastion.yml",
+      "playbook_dir": "../bastion/",
+      "command": "echo '{{user `pass`}}' | ansible-playbook",
+      "extra_arguments": [ "--extra-vars \"env={{ user `Tag3`}} project_name={{ user `Tag1`}} project_type={{ user `Tag2`}} host=localhost\" -t private-key --vault-password-file=/bin/cat" ]
+    }
+]
+}
